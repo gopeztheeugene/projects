@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Description
+Metadata:
+    AWS::CloudFormation::Interface:
+        ParameterGroups:
+            -
+                Label:
+                    default: "Instance Configuration"
+                Parameters:
+                    - NameTag
+                    - AMI
+                    - InstanceType
+                    - KeyName
+                    - SecurityGroups
+                    - Subnet
+            -
+                Label:
+                    default: "Syslog Configuration"
+                Parameters:
+                    - CloudOneApiKey
+                    - CloudOneRegion
+                    - Port
+                    - LogForwarding
+                    - Timezone
+                    - Format
+                    - Facility
+                    - LogLocation
+Parameters:
+    NameTag:
+        Description: Name of your syslog server
+        Type: String
+    AMI:
+        Description: Rhel 8 or 9
+        Type: String
+        AllowedValues:
+        - RHEL8
+        - RHEL9
+        Default: RHEL9
+    InstanceType:
+        Description: Instance1 EC2 instance type
+        Type: String
+        Default: t2.small
+        AllowedValues:
+        - t2.nano
+        - t2.micro
+        - t2.small
+        - t2.medium
+        - t2.large    
+        - t2.xlarge
+        - t2.2xlarge
+        - t3.nano
+        - t3.micro
+        - t3.small
+        - t3.medium
+        - t3.large
+        - t3.xlarge
+        - t3.2xlarge
+        - m4.large
+        - m4.xlarge
+        - m4.2xlarge
+        - m4.4xlarge
+        - m4.10xlarge
+        - m4.16xlarge
+        - m5.large
+        - m5.xlarge
+        - m5.2xlarge
+        - m5.4xlarge
+        - m5.8xlarge
+    KeyName:
+        Description: Name of an existing EC2 key pair for EC2 instance Access.
+        Type: AWS::EC2::KeyPair::KeyName
+    SecurityGroups:
+        Description: Select Security Group/s for this EC2 instances
+        Type: 'List<AWS::EC2::SecurityGroup::Id>'
+    Subnet:
+        Description: Subnet for the Instance
+        Type: "AWS::EC2::Subnet::Id"
+    
+    CloudOneApiKey:
+        Description: Put in your API key
+        Type: String
+        
+    CloudOneRegion:
+        Description: Select Cloud One region of API key. **Note- Please make sure that the subnet assigned to your region is allowed in your Security Group.
+        Type: String
+        AllowedValues:
+        - trend-us-1
+        - us-1
+        - in-1
+        - sg-1
+        - de-1
+        - au-1
+        - ca-1
+        - gb-1
+    Port:
+        Description: Port configured to access Rsyslog.
+        Type: String
+        Default: 514
+    LogForwarding:
+        Description: Entity that will send the logs. If format is LEEF, ignore this part.
+        Type: String
+        AllowedValues:
+        - Manager
+        - Agent
+    Timezone:
+        Description: Include timezone?
+        Type: String
+        AllowedValues:
+        - true
+        - false
+    Format:
+        Description: Specify the format of the logs.
+        Type: String
+        AllowedValues:
+        - standard
+        - cef
+        - leef
+        
+    Facility:
+        Description: Specify the Facility of the logs.
+        Type: String
+        AllowedValues:
+        - local0
+        - local1
+        - local2
+        - local3
+        - local4
+        - local5
+        - local6
+        - local7
+    LogLocation:
+        Description: Specify the location of the log file. Make sure to include the log file.
+        Type: String
+        Default: /var/log/DSM.log
+    
+        
+            
+Mappings:
+    RegionMap:
+        us-east-2:
+            "RHEL8": "ami-0520e698dd500b1d1"
+            "RHEL9": "ami-067a8829f9ae24c1c"
+    Comms:
+        Manager:
+            value: false
+        Agent:
+            value: true
+        
+
+   
+Resources:
+  SIEM:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap
+       - RegionMap
+       - !Ref 'AWS::Region'
+       - !Ref AMI
+      InstanceType:
+        Ref: InstanceType
+      KeyName: !Ref KeyName
+      Tags:
+        -
+            Key: Name
+            Value: !Ref NameTag
+      SecurityGroupIds: !Ref SecurityGroups
+      SubnetId: !Ref Subnet
+      UserData:
+        Fn::Base64: 
+            !Sub  
+            - | 
+                #!/bin/bash
+                urlCreateSyslog='https://workload.${CloudOneRegion}.cloudone.trendmicro.com/api/syslogconfigurations'
+                urlAssignSyslog='https://workload.${CloudOneRegion}.cloudone.trendmicro.com/api/systemsettings/platformSettingSyslogConfigId'
+                touch ${LogLocation}
+                
+                sed -i 's/#module(load="imudp")/module(load="imudp")/' /etc/rsyslog.conf
+                sed -i 's/#input(type="imudp" port="514")/input(type="imudp" port="${Port}")/' /etc/rsyslog.conf
+                sed -i '63 i ${Facility}.* ${LogLocation}' /etc/rsyslog.conf
+                
+                PUBIP=$(curl http://169.254.169.254/latest/meta-data/public-ipv4)
+                result=$(curl -X POST $urlCreateSyslog -H "Authorization:ApiKey ${CloudOneApiKey}" -H "api-version:v1" -H "Content-Type:application/json" -d "{\"name\": \"${NameTag}\",\"description\": \"$PUBIP\",\"hostName\": \"$PUBIP\",\"port\": ${Port},\"agentDirectForwarding\": ${Forwarding},\"includeTimezone\": ${Timezone},\"transport\": \"udp\",\"eventFormat\": \"${Format}\",\"facility\": \"${Facility}\"}" -o /tmp/file.txt);
+                
+                yum -y install jq
+                IDvalue=$(cat /tmp/file.txt | jq '.ID')
+                assign=$(curl -X POST $urlAssignSyslog -H "Authorization:ApiKey ${CloudOneApiKey}" -H "api-version:v1" -H "Content-Type:application/json" -d "{\"value\": \"$IDvalue\"}" -o /tmp/file3.txt)
+            
+            - Forwarding: !FindInMap [Comms, !Ref LogForwarding, value]
