@@ -8,7 +8,7 @@ url = "https://workload.<replace with region>.cloudone.trendmicro.com/api/schedu
 #Headers
 headers = {
       'api-version': 'v1',
-      'Authorization': 'ApiKey <replace this with api key',
+      'Authorization': 'ApiKey <replace with apikey>',
       'Content-Type': 'application/json',
     }
 
@@ -64,8 +64,8 @@ def deleteAPI(ID):
 
 #Code starts here
 print("Creating Reports...")
-IMreport=payload("Eugene_IntegrityMonitoringReport", 10)
-LIreport=payload("Eugene_LogInspectionReport", 1)
+IMreport=payload("IntegrityMonitoringReport", 10)
+LIreport=payload("LogInspectionReport", 1)
 print("Done running APIs")
 
 #Get the Scheduled task ID
